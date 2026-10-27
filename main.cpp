@@ -14,14 +14,14 @@
 
 #pragma comment(lib, "comctl32.lib")
 
-// --- ИНТЕРФЕЙС ДЛЯ OCR ---
+// --- INTERFACE FOR OCR ---
 struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(novtable)
 IMemoryBufferByteAccess : ::IUnknown
 {
     virtual HRESULT __stdcall GetBuffer(BYTE** value, UINT32* capacity) = 0;
 };
 
-// --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
+// --- GLOBAL VARIABLES ---
 std::atomic<bool> isRunning(false);
 int insertCount = 3;
 RECT captureRect = { 100, 100, 500, 200 };
@@ -32,7 +32,7 @@ HWND hLogEdit = NULL;
 HWND hCountEdit = NULL;
 HWND hBtnToggle = NULL;
 
-// --- УТИЛИТЫ ---
+// --- UTILS ---
 void LogMessage(const std::wstring& msg) {
     if (!hLogEdit) return;
     int len = GetWindowTextLengthW(hLogEdit);
@@ -112,11 +112,11 @@ winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMA
     return bitmap;
 }
 
-// --- ПОТОК СНАЙПЕРА ---
+// --- SNIPER THREAD ---
 void SniperLoop() {
     winrt::init_apartment(); 
     auto langs = winrt::Windows::Media::Ocr::OcrEngine::AvailableRecognizerLanguages();
-    if (langs.Size() == 0) { LogMessage(L"[!] Ошибка: OCR языки не найдены!"); return; }
+    if (langs.Size() == 0) { LogMessage(L"[!] Error: No OCR languages found!"); return; }
     auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(langs.GetAt(0));
     
     std::wstring lastCode = L"";
@@ -147,7 +147,7 @@ void SniperLoop() {
                 for (int i = 0; i < count; i++) { PressCtrlV(); Sleep(50); }
                 PressKey(VK_RETURN);
                 
-                std::wstring logMsg = L"[+] СНАЙПЕНО: " + foundCode;
+                std::wstring logMsg = L"[+] SNIPED: " + foundCode;
                 LogMessage(logMsg);
             }
         }
@@ -155,21 +155,21 @@ void SniperLoop() {
     }
 }
 
-// --- ОКОННАЯ ПРОЦЕДУРА ---
+// --- MAIN WINDOW PROC ---
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
-        CreateWindowW(L"STATIC", L"Количество вставок (Ctrl+V):", WS_CHILD | WS_VISIBLE, 10, 10, 200, 20, hwnd, NULL, NULL, NULL);
-        hCountEdit = CreateWindowW(L"EDIT", L"3", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 220, 10, 50, 20, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"Insert Count (Ctrl+V):", WS_CHILD | WS_VISIBLE, 10, 10, 150, 20, hwnd, NULL, NULL, NULL);
+        hCountEdit = CreateWindowW(L"EDIT", L"3", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 160, 10, 50, 20, hwnd, NULL, NULL, NULL);
         
-        hBtnToggle = CreateWindowW(L"BUTTON", L"СТАРТ (F8)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 40, 260, 30, hwnd, (HMENU)1, NULL, NULL);
+        hBtnToggle = CreateWindowW(L"BUTTON", L"START (F8)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 40, 280, 30, hwnd, (HMENU)1, NULL, NULL);
         
-        CreateWindowW(L"STATIC", L"Лог:", WS_CHILD | WS_VISIBLE, 10, 80, 50, 20, hwnd, NULL, NULL, NULL);
-        hLogEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 10, 100, 260, 150, hwnd, NULL, NULL, NULL);
+        CreateWindowW(L"STATIC", L"Log:", WS_CHILD | WS_VISIBLE, 10, 80, 50, 20, hwnd, NULL, NULL, NULL);
+        hLogEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 10, 100, 280, 150, hwnd, NULL, NULL, NULL);
         break;
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == 1) { // Кнопка Старт/Стоп
+        if (LOWORD(wParam) == 1) { // Start/Stop Button
             if (!isRunning) {
                 wchar_t buf[10];
                 GetWindowTextW(hCountEdit, buf, 10);
@@ -178,13 +178,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
 
                 GetWindowRect(hSelectorWnd, &captureRect);
                 isRunning = true;
-                SetWindowTextW(hBtnToggle, L"СТОП (F8)");
-                LogMessage(L">>> СНАЙПЕР ЗАПУЩЕН. Ожидание кода...");
+                SetWindowTextW(hBtnToggle, L"STOP (F8)");
+                LogMessage(L">>> SNIPER STARTED. Waiting for code...");
                 std::thread(SniperLoop).detach();
             } else {
                 isRunning = false;
-                SetWindowTextW(hBtnToggle, L"СТАРТ (F8)");
-                LogMessage(L">>> СНАЙПЕР ОСТАНОВЛЕН.");
+                SetWindowTextW(hBtnToggle, L"START (F8)");
+                LogMessage(L">>> SNIPER STOPPED.");
             }
         }
         break;
@@ -198,7 +198,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-// --- ОКОННАЯ ПРОЦЕДУРА ДЛЯ РАМКИ ---
+// --- SELECTOR WINDOW PROC ---
 LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static bool isDragging = false;
     static bool isResizing = false;
@@ -211,7 +211,6 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         GetCursorPos(&startPoint);
         GetWindowRect(hwnd, &startRect);
         
-        // Если кликнули в правый нижний угол (20x20 пикселей) — ресайз, иначе — драг
         if (startPoint.x > startRect.right - 20 && startPoint.y > startRect.bottom - 20) {
             isResizing = true;
         } else {
@@ -242,7 +241,6 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        // Рисуем рамку (красную)
         HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 0));
         FrameRect(hdc, &ps.rcPaint, hBrush);
         DeleteObject(hBrush);
@@ -253,7 +251,7 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     return DefWindowProc(hwnd, msg, wParam, lParam);
 }
 
-// --- ТОЧКА ВХОДА ---
+// --- ENTRY POINT ---
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
     WNDCLASSW wc = { 0 };
     wc.lpfnWndProc = WndProc;
@@ -262,9 +260,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wc.lpszClassName = L"MainSniperClass";
     RegisterClassW(&wc);
 
-    hMainWnd = CreateWindowW(L"MainSniperClass", L"Code Sniper Beta", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX, 300, 300, 300, 300, NULL, NULL, hInstance, NULL);
+    hMainWnd = CreateWindowW(L"MainSniperClass", L"Code Sniper Beta", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX, 300, 300, 320, 300, NULL, NULL, hInstance, NULL);
 
-    // Создаем окно-рамку (без рамок, прозрачное, поверх всех)
+    // Создаем окно-рамку (теперь она реально прозрачная для кликов и видит мышь)
     WNDCLASSW wcSel = { 0 };
     wcSel.lpfnWndProc = SelectorProc;
     wcSel.hInstance = hInstance;
@@ -272,10 +270,10 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wcSel.lpszClassName = L"SelectorClass";
     RegisterClassW(&wcSel);
 
-    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
+    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
     
-    // Делаем рамку полупрозрачной
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(0, 0, 0), 100, LWA_COLORKEY | LWA_ALPHA);
+    // Делаем рамку полупрозрачной, красный цвет становится прозрачным
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(0, 0, 0), 120, LWA_COLORKEY | LWA_ALPHA);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
