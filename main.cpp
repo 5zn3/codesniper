@@ -198,7 +198,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-// --- SELECTOR WINDOW PROC ---
+// --- SELECTOR WINDOW PROC (ИСПРАВЛЕНО) ---
 LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static bool isDragging = false;
     static bool isResizing = false;
@@ -229,6 +229,7 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int newWidth = startRect.right - startRect.left + (pt.x - startPoint.x);
             int newHeight = startRect.bottom - startRect.top + (pt.y - startPoint.y);
             if (newWidth > 50) SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+            InvalidateRect(hwnd, NULL, TRUE); // Перерисовываем рамку
         }
         return 0;
 
@@ -241,9 +242,21 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
-        HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 0));
-        FrameRect(hdc, &ps.rcPaint, hBrush);
-        DeleteObject(hBrush);
+        
+        // Очищаем фон (делаем его прозрачным)
+        FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(NULL_BRUSH));
+        
+        // Рисуем ТОЛЬКО контур красной рамки
+        HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
+        HGDIOBJ oldPen = SelectObject(hdc, hPen);
+        HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        
+        Rectangle(hdc, 0, 0, ps.rcPaint.right, ps.rcPaint.bottom);
+        
+        SelectObject(hdc, oldBrush);
+        SelectObject(hdc, oldPen);
+        DeleteObject(hPen);
+        
         EndPaint(hwnd, &ps);
         return 0;
     }
@@ -262,18 +275,19 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     hMainWnd = CreateWindowW(L"MainSniperClass", L"Code Sniper Beta", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX, 300, 300, 320, 300, NULL, NULL, hInstance, NULL);
 
-    // Создаем окно-рамку (теперь она реально прозрачная для кликов и видит мышь)
+    // Создаем окно-рамку (теперь она прозрачная для кликов)
     WNDCLASSW wcSel = { 0 };
     wcSel.lpfnWndProc = SelectorProc;
     wcSel.hInstance = hInstance;
-    wcSel.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));
+    wcSel.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); // Прозрачный фон
     wcSel.lpszClassName = L"SelectorClass";
     RegisterClassW(&wcSel);
 
-    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
+    // WS_EX_TRANSPARENT делает окно "прозрачным" для кликов (они проходят сквозь)
+    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
     
-    // Делаем рамку полупрозрачной, красный цвет становится прозрачным
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(0, 0, 0), 120, LWA_COLORKEY | LWA_ALPHA);
+    // Убираем красный цвет (делаем фон полностью прозрачным)
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
