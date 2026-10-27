@@ -263,6 +263,8 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             int newHeight = startRect.bottom - startRect.top + (pt.y - startPoint.y);
             if (newWidth > 60 && newHeight > 60) {
                 SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
+                // Принудительная перерисовка при ресайзе
+                InvalidateRect(hwnd, NULL, TRUE);
             }
         }
         return 0;
@@ -274,17 +276,25 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         return 0;
 
     case WM_ERASEBKGND:
+        // Возвращаем 1, чтобы окно не пыталось закрасить себя белым/черным
         return 1;
 
     case WM_PAINT: {
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         
+        // Заливаем ВСЮ область "магическим" цветом (RGB 1, 2, 3), который мы сделаем прозрачным
+        HBRUSH hBgBrush = CreateSolidBrush(RGB(1, 2, 3));
+        FillRect(hdc, &ps.rcPaint, hBgBrush);
+        DeleteObject(hBgBrush);
+
+        // Рисуем красную шапку
         HBRUSH hBrushTop = CreateSolidBrush(RGB(255, 0, 0));
         RECT topBar = { 0, 0, ps.rcPaint.right, 20 };
         FillRect(hdc, &topBar, hBrushTop);
         DeleteObject(hBrushTop);
 
+        // Рисуем красный контур
         HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
         HGDIOBJ oldPen = SelectObject(hdc, hPen);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -322,7 +332,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 150, NULL, NULL, hInstance, NULL);
     
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
+    // Делаем цвет RGB(1, 2, 3) полностью прозрачным
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(1, 2, 3), 0, LWA_COLORKEY);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
