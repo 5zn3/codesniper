@@ -16,17 +16,11 @@
 #include <wrl\client.h>
 #include <robuffer.h>
 
-using namespace winrt;
-using namespace Windows::Media::Ocr;
-using namespace Windows::Graphics::Imaging;
-using namespace Windows::Storage::Streams;
+// Убрали using namespace Windows! Теперь пишем полные пути.
 
 // --- Глобальные переменные ---
 std::atomic<bool> isRunning(false);
 int insertCount = 3;
-
-// КООРДИНАТЫ РАМКИ ЗАХВАТА (Лево, Верх, Право, Низ)
-// Поменяй эти цифры под то место, где появляется код в игре!
 RECT captureRect = { 100, 100, 500, 200 }; 
 
 // --- Эмуляция нажатия клавиш ---
@@ -78,7 +72,7 @@ HBITMAP CaptureScreen(RECT rect) {
 }
 
 // --- Конвертация HBITMAP в SoftwareBitmap ---
-SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMAP hbm, int width, int height) {
+winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMAP hbm, int width, int height) {
     BITMAPINFO bmi = { 0 };
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
     bmi.bmiHeader.biWidth = width;
@@ -92,17 +86,16 @@ SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMAP hbm, int width, int height) {
     GetDIBits(hdc, hbm, 0, height, pixels.data(), &bmi, DIB_RGB_COLORS);
     ReleaseDC(NULL, hdc);
 
-    SoftwareBitmap bitmap(BitmapPixelFormat::Bgra8, width, height);
-    auto buffer = bitmap.LockBuffer(BitmapBufferAccessMode::Write);
+    winrt::Windows::Graphics::Imaging::SoftwareBitmap bitmap(winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Bgra8, width, height);
+    auto buffer = bitmap.LockBuffer(winrt::Windows::Graphics::Imaging::BitmapBufferAccessMode::Write);
     
-    // Используем COM-интерфейс IMemoryBufferByteAccess для доступа к памяти
     auto reference = buffer.CreateReference();
-    com_ptr<::IMemoryBufferByteAccess> access;
-    check_hresult(reference.as(access));
+    winrt::com_ptr<::IMemoryBufferByteAccess> access;
+    winrt::check_hresult(reference.as(access));
     
     byte* data = nullptr;
     UINT32 capacity = 0;
-    check_hresult(access->GetBuffer(&data, &capacity));
+    winrt::check_hresult(access->GetBuffer(&data, &capacity));
     
     memcpy(data, pixels.data(), pixels.size());
     return bitmap;
@@ -112,14 +105,13 @@ SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMAP hbm, int width, int height) {
 void SniperLoop() {
     winrt::init_apartment(); 
     
-    // Получаем доступные языки для OCR (обычно английский идет первым)
-    auto langs = OcrEngine::AvailableRecognizerLanguages();
+    auto langs = winrt::Windows::Media::Ocr::OcrEngine::AvailableRecognizerLanguages();
     if (langs.Size() == 0) {
         MessageBoxW(NULL, L"Ошибка: OCR языки не найдены!", L"Error", MB_OK | MB_ICONERROR);
         return;
     }
     auto lang = langs.GetAt(0);
-    auto ocrEngine = OcrEngine::TryCreateFromLanguage(lang);
+    auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(lang);
     
     std::wstring lastCode = L"";
 
@@ -129,13 +121,12 @@ void SniperLoop() {
         if (w <= 0 || h <= 0) { Sleep(100); continue; }
 
         HBITMAP hbm = CaptureScreen(captureRect);
-        SoftwareBitmap sbmp = HBITMAPToSoftwareBitmap(hbm, w, h);
+        auto sbmp = HBITMAPToSoftwareBitmap(hbm, w, h);
         DeleteObject(hbm);
 
         auto result = ocrEngine.RecognizeAsync(sbmp).get();
         std::wstring fullText = result.Text().c_str();
 
-        // Ищем текст вида "code is XXXX"
         std::wregex codeRegex(L"code\\s*is\\s*([A-Za-z0-9]+)", std::regex_constants::icase);
         std::wsmatch match;
         
@@ -147,14 +138,11 @@ void SniperLoop() {
                 SetClipboardText(foundCode);
                 Sleep(200); 
 
-                // Вставляем 3 раза
                 for (int i = 0; i < insertCount; i++) {
                     PressCtrlV();
                     Sleep(50);
                 }
-                // Жмем Enter
                 PressKey(VK_RETURN);
-                
                 std::wcout << L"[CODE SNIPED]: " << foundCode << std::endl;
             }
         }
@@ -166,7 +154,7 @@ int wmain(int argc, wchar_t* argv[]) {
     SetConsoleTitleW(L"Code Sniper (F8 to Start/Stop)");
     std::wcout << L"=== CODE SNIPER ===" << std::endl;
     std::wcout << L"Нажми F8, чтобы включить/выключить." << std::endl;
-    std::wcout << L"Рамка захвата: [" << captureRect.left << ", " << captureRect.top << "] - [" << captureRect.right << ", " << captureRect.bottom << "]" << std::endl;
+    std::wcout << L"Рамка: [" << captureRect.left << ", " << captureRect.top << "] - [" << captureRect.right << ", " << captureRect.bottom << "]" << std::endl;
 
     while (true) {
         if (GetAsyncKeyState(VK_F8) & 0x8000) {
@@ -178,7 +166,7 @@ int wmain(int argc, wchar_t* argv[]) {
                 isRunning = false;
                 std::wcout << L">>> СНАЙПЕР ОСТАНОВЛЕН" << std::endl;
             }
-            Sleep(500); // Антидребезг клавиши
+            Sleep(500);
         }
         Sleep(50);
     }
