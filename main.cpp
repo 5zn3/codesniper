@@ -125,10 +125,10 @@ void SniperLoop() {
         int w = captureRect.right - captureRect.left;
         int h = captureRect.bottom - captureRect.top;
         
-        // Захватываем только область ПОД шапкой
+        // Захватываем область ПОД шапкой (высота шапки 20 пикселей)
         RECT actualCapture = { captureRect.left, captureRect.top + 20, captureRect.right, captureRect.bottom };
 
-        if (w <= 0 || h <= 0) { Sleep(100); continue; }
+        if (w <= 0 || h <= 20) { Sleep(100); continue; }
 
         HBITMAP hbm = CaptureScreen(actualCapture);
         auto sbmp = HBITMAPToSoftwareBitmap(hbm, w, h - 20);
@@ -188,7 +188,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             } else {
                 isRunning = false;
                 SetWindowTextW(hBtnToggle, L"START (F8)");
-                LogMessage(L>>> SNIPER STOPPED.");
+                LogMessage(L">>> SNIPER STOPPED.");
             }
         }
         break;
@@ -251,16 +251,13 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         
-        // Очищаем фон (прозрачный)
         FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(NULL_BRUSH));
 
-        // Рисуем красную верхнюю полосу (шапку)
         HBRUSH hBrushTop = CreateSolidBrush(RGB(255, 0, 0));
         RECT topBar = { 0, 0, ps.rcPaint.right, 20 };
         FillRect(hdc, &topBar, hBrushTop);
         DeleteObject(hBrushTop);
 
-        // Рисуем красный контур вокруг всей рамки
         HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
         HGDIOBJ oldPen = SelectObject(hdc, hPen);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -296,12 +293,9 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
     wcSel.lpszClassName = L"SelectorClass";
     RegisterClassW(&wcSel);
 
-    // Создаем окно
     hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 150, NULL, NULL, hInstance, NULL);
     
-    // Делаем красный цвет (RGB 255,0,0) прозрачным на кликах, и применяем общую прозрачность 150 (из 255)
-    // Но сама красная полоса останется видимой!
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 180, LWA_COLORKEY | LWA_ALPHA);
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 200, LWA_COLORKEY | LWA_ALPHA);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
