@@ -124,10 +124,14 @@ void SniperLoop() {
     while (isRunning) {
         int w = captureRect.right - captureRect.left;
         int h = captureRect.bottom - captureRect.top;
+        
+        // Захватываем только область ПОД шапкой
+        RECT actualCapture = { captureRect.left, captureRect.top + 20, captureRect.right, captureRect.bottom };
+
         if (w <= 0 || h <= 0) { Sleep(100); continue; }
 
-        HBITMAP hbm = CaptureScreen(captureRect);
-        auto sbmp = HBITMAPToSoftwareBitmap(hbm, w, h);
+        HBITMAP hbm = CaptureScreen(actualCapture);
+        auto sbmp = HBITMAPToSoftwareBitmap(hbm, w, h - 20);
         DeleteObject(hbm);
 
         auto result = ocrEngine.RecognizeAsync(sbmp).get();
@@ -169,7 +173,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_COMMAND:
-        if (LOWORD(wParam) == 1) { // Start/Stop Button
+        if (LOWORD(wParam) == 1) { 
             if (!isRunning) {
                 wchar_t buf[10];
                 GetWindowTextW(hCountEdit, buf, 10);
@@ -184,7 +188,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
             } else {
                 isRunning = false;
                 SetWindowTextW(hBtnToggle, L"START (F8)");
-                LogMessage(L">>> SNIPER STOPPED.");
+                LogMessage(L>>> SNIPER STOPPED.");
             }
         }
         break;
@@ -198,7 +202,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     return 0;
 }
 
-// --- SELECTOR WINDOW PROC (ИСПРАВЛЕНО) ---
+// --- SELECTOR WINDOW PROC ---
 LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     static bool isDragging = false;
     static bool isResizing = false;
@@ -211,9 +215,12 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         GetCursorPos(&startPoint);
         GetWindowRect(hwnd, &startRect);
         
+        // Растягивание за правый нижний угол (20x20)
         if (startPoint.x > startRect.right - 20 && startPoint.y > startRect.bottom - 20) {
             isResizing = true;
-        } else {
+        } 
+        // Перетаскивание строго за верхнюю красную полосу (высота 20 пикселей)
+        else if (startPoint.y < startRect.top + 20) {
             isDragging = true;
         }
         return 0;
@@ -228,8 +235,9 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             POINT pt; GetCursorPos(&pt);
             int newWidth = startRect.right - startRect.left + (pt.x - startPoint.x);
             int newHeight = startRect.bottom - startRect.top + (pt.y - startPoint.y);
-            if (newWidth > 50) SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
-            InvalidateRect(hwnd, NULL, TRUE); // Перерисовываем рамку
+            if (newWidth > 50 && newHeight > 50) {
+                SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+            }
         }
         return 0;
 
@@ -243,10 +251,16 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         
-        // Очищаем фон (делаем его прозрачным)
+        // Очищаем фон (прозрачный)
         FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(NULL_BRUSH));
-        
-        // Рисуем ТОЛЬКО контур красной рамки
+
+        // Рисуем красную верхнюю полосу (шапку)
+        HBRUSH hBrushTop = CreateSolidBrush(RGB(255, 0, 0));
+        RECT topBar = { 0, 0, ps.rcPaint.right, 20 };
+        FillRect(hdc, &topBar, hBrushTop);
+        DeleteObject(hBrushTop);
+
+        // Рисуем красный контур вокруг всей рамки
         HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
         HGDIOBJ oldPen = SelectObject(hdc, hPen);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -275,24 +289,23 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     hMainWnd = CreateWindowW(L"MainSniperClass", L"Code Sniper Beta", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX, 300, 300, 320, 300, NULL, NULL, hInstance, NULL);
 
-    // Создаем окно-рамку (теперь она прозрачная для кликов)
     WNDCLASSW wcSel = { 0 };
     wcSel.lpfnWndProc = SelectorProc;
     wcSel.hInstance = hInstance;
-    wcSel.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); // Прозрачный фон
+    wcSel.hbrBackground = (HBRUSH)GetStockObject(NULL_BRUSH); 
     wcSel.lpszClassName = L"SelectorClass";
     RegisterClassW(&wcSel);
 
-    // WS_EX_TRANSPARENT делает окно "прозрачным" для кликов (они проходят сквозь)
-    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
+    // Создаем окно
+    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 150, NULL, NULL, hInstance, NULL);
     
-    // Убираем красный цвет (делаем фон полностью прозрачным)
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
+    // Делаем красный цвет (RGB 255,0,0) прозрачным на кликах, и применяем общую прозрачность 150 (из 255)
+    // Но сама красная полоса останется видимой!
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 180, LWA_COLORKEY | LWA_ALPHA);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
 
-    // Горячая клавиша F8
     RegisterHotKey(hMainWnd, 1, 0, VK_F8);
 
     MSG msg;
