@@ -13,7 +13,6 @@
 #include <vector>
 
 // --- РУЧНОЕ ОБЪЯВЛЕНИЕ ИНТЕРФЕЙСА ---
-// В новых версиях SDK он пропал из robuffer.h, поэтому добавляем сами
 struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(novtable)
 IMemoryBufferByteAccess : ::IUnknown
 {
@@ -93,9 +92,8 @@ winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMA
     auto buffer = bitmap.LockBuffer(winrt::Windows::Graphics::Imaging::BitmapBufferAccessMode::Write);
     
     auto reference = buffer.CreateReference();
-    // Используем наш объявленный интерфейс
     winrt::com_ptr<::IMemoryBufferByteAccess> access;
-    winrt::check_hresult(reference.as(access));
+    reference.as(access); // ИСПРАВЛЕНО ТУТ
     
     BYTE* data = nullptr;
     UINT32 capacity = 0;
