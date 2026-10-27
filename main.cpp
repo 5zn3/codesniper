@@ -12,11 +12,14 @@
 #include <regex>
 #include <vector>
 
-// Для доступа к пикселям
-#include <wrl\client.h>
-#include <robuffer.h>
-
-// Убрали using namespace Windows! Теперь пишем полные пути.
+// --- РУЧНОЕ ОБЪЯВЛЕНИЕ ИНТЕРФЕЙСА ---
+// В новых версиях SDK он пропал из robuffer.h, поэтому добавляем сами
+struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(novtable)
+IMemoryBufferByteAccess : ::IUnknown
+{
+    virtual HRESULT __stdcall GetBuffer(BYTE** value, UINT32* capacity) = 0;
+};
+// ------------------------------------
 
 // --- Глобальные переменные ---
 std::atomic<bool> isRunning(false);
@@ -90,10 +93,11 @@ winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMA
     auto buffer = bitmap.LockBuffer(winrt::Windows::Graphics::Imaging::BitmapBufferAccessMode::Write);
     
     auto reference = buffer.CreateReference();
+    // Используем наш объявленный интерфейс
     winrt::com_ptr<::IMemoryBufferByteAccess> access;
     winrt::check_hresult(reference.as(access));
     
-    byte* data = nullptr;
+    BYTE* data = nullptr;
     UINT32 capacity = 0;
     winrt::check_hresult(access->GetBuffer(&data, &capacity));
     
