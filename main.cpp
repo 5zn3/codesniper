@@ -5,33 +5,47 @@
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Globalization.h>
 #include <winrt/Windows.Foundation.Collections.h>
-#include <iostream>
 #include <string>
 #include <thread>
 #include <atomic>
 #include <regex>
 #include <vector>
+#include <commctrl.h>
 
-// --- РУЧНОЕ ОБЪЯВЛЕНИЕ ИНТЕРФЕЙСА ---
+#pragma comment(lib, "comctl32.lib")
+
+// --- ИНТЕРФЕЙС ДЛЯ OCR ---
 struct __declspec(uuid("5b0d3235-4dba-4d44-865e-8f1d0e4fd04d")) __declspec(novtable)
 IMemoryBufferByteAccess : ::IUnknown
 {
     virtual HRESULT __stdcall GetBuffer(BYTE** value, UINT32* capacity) = 0;
 };
-// ------------------------------------
 
-// --- Глобальные переменные ---
+// --- ГЛОБАЛЬНЫЕ ПЕРЕМЕННЫЕ ---
 std::atomic<bool> isRunning(false);
 int insertCount = 3;
-RECT captureRect = { 100, 100, 500, 200 }; 
+RECT captureRect = { 100, 100, 500, 200 };
 
-// --- Эмуляция нажатия клавиш ---
+HWND hMainWnd = NULL;
+HWND hSelectorWnd = NULL;
+HWND hLogEdit = NULL;
+HWND hCountEdit = NULL;
+HWND hBtnToggle = NULL;
+
+// --- УТИЛИТЫ ---
+void LogMessage(const std::wstring& msg) {
+    if (!hLogEdit) return;
+    int len = GetWindowTextLengthW(hLogEdit);
+    SendMessageW(hLogEdit, EM_SETSEL, len, len);
+    std::wstring text = msg + L"\r\n";
+    SendMessageW(hLogEdit, EM_REPLACESEL, FALSE, (LPARAM)text.c_str());
+}
+
 void PressKey(WORD key) {
     INPUT input = { 0 };
     input.type = INPUT_KEYBOARD;
     input.ki.wVk = key;
     SendInput(1, &input, sizeof(INPUT));
-    
     input.ki.dwFlags = KEYEVENTF_KEYUP;
     SendInput(1, &input, sizeof(INPUT));
 }
@@ -45,7 +59,6 @@ void PressCtrlV() {
     SendInput(4, inputs, sizeof(INPUT));
 }
 
-// --- Копирование в буфер обмена ---
 void SetClipboardText(const std::wstring& text) {
     if (OpenClipboard(NULL)) {
         EmptyClipboard();
@@ -59,7 +72,6 @@ void SetClipboardText(const std::wstring& text) {
     }
 }
 
-// --- Захват экрана ---
 HBITMAP CaptureScreen(RECT rect) {
     HDC hdcScreen = GetDC(NULL);
     HDC hdcMem = CreateCompatibleDC(hdcScreen);
@@ -73,7 +85,6 @@ HBITMAP CaptureScreen(RECT rect) {
     return hbm;
 }
 
-// --- Конвертация HBITMAP в SoftwareBitmap ---
 winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMAP hbm, int width, int height) {
     BITMAPINFO bmi = { 0 };
     bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
@@ -90,30 +101,23 @@ winrt::Windows::Graphics::Imaging::SoftwareBitmap HBITMAPToSoftwareBitmap(HBITMA
 
     winrt::Windows::Graphics::Imaging::SoftwareBitmap bitmap(winrt::Windows::Graphics::Imaging::BitmapPixelFormat::Bgra8, width, height);
     auto buffer = bitmap.LockBuffer(winrt::Windows::Graphics::Imaging::BitmapBufferAccessMode::Write);
-    
     auto reference = buffer.CreateReference();
     winrt::com_ptr<::IMemoryBufferByteAccess> access;
-    reference.as(access); // ИСПРАВЛЕНО ТУТ
+    reference.as(access);
     
     BYTE* data = nullptr;
     UINT32 capacity = 0;
     winrt::check_hresult(access->GetBuffer(&data, &capacity));
-    
     memcpy(data, pixels.data(), pixels.size());
     return bitmap;
 }
 
-// --- Основной цикл ---
+// --- ПОТОК СНАЙПЕРА ---
 void SniperLoop() {
     winrt::init_apartment(); 
-    
     auto langs = winrt::Windows::Media::Ocr::OcrEngine::AvailableRecognizerLanguages();
-    if (langs.Size() == 0) {
-        MessageBoxW(NULL, L"Ошибка: OCR языки не найдены!", L"Error", MB_OK | MB_ICONERROR);
-        return;
-    }
-    auto lang = langs.GetAt(0);
-    auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(lang);
+    if (langs.Size() == 0) { LogMessage(L"[!] Ошибка: OCR языки не найдены!"); return; }
+    auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(langs.GetAt(0));
     
     std::wstring lastCode = L"";
 
@@ -134,43 +138,158 @@ void SniperLoop() {
         
         if (std::regex_search(fullText, match, codeRegex)) {
             std::wstring foundCode = match[1].str();
-            
             if (foundCode != lastCode && !foundCode.empty()) {
                 lastCode = foundCode;
                 SetClipboardText(foundCode);
                 Sleep(200); 
 
-                for (int i = 0; i < insertCount; i++) {
-                    PressCtrlV();
-                    Sleep(50);
-                }
+                int count = insertCount;
+                for (int i = 0; i < count; i++) { PressCtrlV(); Sleep(50); }
                 PressKey(VK_RETURN);
-                std::wcout << L"[CODE SNIPED]: " << foundCode << std::endl;
+                
+                std::wstring logMsg = L"[+] СНАЙПЕНО: " + foundCode;
+                LogMessage(logMsg);
             }
         }
         Sleep(500); 
     }
 }
 
-int wmain(int argc, wchar_t* argv[]) {
-    SetConsoleTitleW(L"Code Sniper (F8 to Start/Stop)");
-    std::wcout << L"=== CODE SNIPER ===" << std::endl;
-    std::wcout << L"Нажми F8, чтобы включить/выключить." << std::endl;
-    std::wcout << L"Рамка: [" << captureRect.left << ", " << captureRect.top << "] - [" << captureRect.right << ", " << captureRect.bottom << "]" << std::endl;
+// --- ОКОННАЯ ПРОЦЕДУРА ---
+LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE:
+        CreateWindowW(L"STATIC", L"Количество вставок (Ctrl+V):", WS_CHILD | WS_VISIBLE, 10, 10, 200, 20, hwnd, NULL, NULL, NULL);
+        hCountEdit = CreateWindowW(L"EDIT", L"3", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 220, 10, 50, 20, hwnd, NULL, NULL, NULL);
+        
+        hBtnToggle = CreateWindowW(L"BUTTON", L"СТАРТ (F8)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 40, 260, 30, hwnd, (HMENU)1, NULL, NULL);
+        
+        CreateWindowW(L"STATIC", L"Лог:", WS_CHILD | WS_VISIBLE, 10, 80, 50, 20, hwnd, NULL, NULL, NULL);
+        hLogEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 10, 100, 260, 150, hwnd, NULL, NULL, NULL);
+        break;
 
-    while (true) {
-        if (GetAsyncKeyState(VK_F8) & 0x8000) {
+    case WM_COMMAND:
+        if (LOWORD(wParam) == 1) { // Кнопка Старт/Стоп
             if (!isRunning) {
+                wchar_t buf[10];
+                GetWindowTextW(hCountEdit, buf, 10);
+                insertCount = _wtoi(buf);
+                if (insertCount <= 0) insertCount = 3;
+
+                GetWindowRect(hSelectorWnd, &captureRect);
                 isRunning = true;
-                std::wcout << L">>> СНАЙПЕР ЗАПУЩЕН" << std::endl;
+                SetWindowTextW(hBtnToggle, L"СТОП (F8)");
+                LogMessage(L">>> СНАЙПЕР ЗАПУЩЕН. Ожидание кода...");
                 std::thread(SniperLoop).detach();
             } else {
                 isRunning = false;
-                std::wcout << L">>> СНАЙПЕР ОСТАНОВЛЕН" << std::endl;
+                SetWindowTextW(hBtnToggle, L"СТАРТ (F8)");
+                LogMessage(L">>> СНАЙПЕР ОСТАНОВЛЕН.");
             }
-            Sleep(500);
         }
-        Sleep(50);
+        break;
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+// --- ОКОННАЯ ПРОЦЕДУРА ДЛЯ РАМКИ ---
+LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static bool isDragging = false;
+    static bool isResizing = false;
+    static POINT startPoint;
+    static RECT startRect;
+
+    switch (msg) {
+    case WM_LBUTTONDOWN:
+        SetCapture(hwnd);
+        GetCursorPos(&startPoint);
+        GetWindowRect(hwnd, &startRect);
+        
+        // Если кликнули в правый нижний угол (20x20 пикселей) — ресайз, иначе — драг
+        if (startPoint.x > startRect.right - 20 && startPoint.y > startRect.bottom - 20) {
+            isResizing = true;
+        } else {
+            isDragging = true;
+        }
+        return 0;
+
+    case WM_MOUSEMOVE:
+        if (isDragging) {
+            POINT pt; GetCursorPos(&pt);
+            int dx = pt.x - startPoint.x;
+            int dy = pt.y - startPoint.y;
+            MoveWindow(hwnd, startRect.left + dx, startRect.top + dy, startRect.right - startRect.left, startRect.bottom - startRect.top, TRUE);
+        } else if (isResizing) {
+            POINT pt; GetCursorPos(&pt);
+            int newWidth = startRect.right - startRect.left + (pt.x - startPoint.x);
+            int newHeight = startRect.bottom - startRect.top + (pt.y - startPoint.y);
+            if (newWidth > 50) SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+        }
+        return 0;
+
+    case WM_LBUTTONUP:
+        isDragging = false;
+        isResizing = false;
+        ReleaseCapture();
+        return 0;
+
+    case WM_PAINT: {
+        PAINTSTRUCT ps;
+        HDC hdc = BeginPaint(hwnd, &ps);
+        // Рисуем рамку (красную)
+        HBRUSH hBrush = CreateSolidBrush(RGB(255, 0, 0));
+        FrameRect(hdc, &ps.rcPaint, hBrush);
+        DeleteObject(hBrush);
+        EndPaint(hwnd, &ps);
+        return 0;
+    }
+    }
+    return DefWindowProc(hwnd, msg, wParam, lParam);
+}
+
+// --- ТОЧКА ВХОДА ---
+int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow) {
+    WNDCLASSW wc = { 0 };
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+    wc.lpszClassName = L"MainSniperClass";
+    RegisterClassW(&wc);
+
+    hMainWnd = CreateWindowW(L"MainSniperClass", L"Code Sniper Beta", WS_OVERLAPPEDWINDOW ^ WS_THICKFRAME ^ WS_MAXIMIZEBOX, 300, 300, 300, 300, NULL, NULL, hInstance, NULL);
+
+    // Создаем окно-рамку (без рамок, прозрачное, поверх всех)
+    WNDCLASSW wcSel = { 0 };
+    wcSel.lpfnWndProc = SelectorProc;
+    wcSel.hInstance = hInstance;
+    wcSel.hbrBackground = CreateSolidBrush(RGB(0, 0, 0));
+    wcSel.lpszClassName = L"SelectorClass";
+    RegisterClassW(&wcSel);
+
+    hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED | WS_EX_TRANSPARENT, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 100, NULL, NULL, hInstance, NULL);
+    
+    // Делаем рамку полупрозрачной
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(0, 0, 0), 100, LWA_COLORKEY | LWA_ALPHA);
+
+    ShowWindow(hMainWnd, nCmdShow);
+    ShowWindow(hSelectorWnd, SW_SHOW);
+
+    // Горячая клавиша F8
+    RegisterHotKey(hMainWnd, 1, 0, VK_F8);
+
+    MSG msg;
+    while (GetMessage(&msg, NULL, 0, 0)) {
+        if (msg.message == WM_HOTKEY && msg.wParam == 1) {
+            SendMessageW(hMainWnd, WM_COMMAND, 1, 0);
+        }
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
     }
     return 0;
 }
