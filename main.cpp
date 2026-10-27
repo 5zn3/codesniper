@@ -120,6 +120,7 @@ void SniperLoop() {
     auto ocrEngine = winrt::Windows::Media::Ocr::OcrEngine::TryCreateFromLanguage(langs.GetAt(0));
     
     std::wstring lastCode = L"";
+    DWORD lastFoundTime = 0; // Защита от повторов
 
     while (isRunning) {
         int w = captureRect.right - captureRect.left;
@@ -136,7 +137,7 @@ void SniperLoop() {
         auto result = ocrEngine.RecognizeAsync(sbmp).get();
         std::wstring fullText = result.Text().c_str();
 
-        // Ищем любые слова (по одному)
+        // Ищем любые слова
         std::wregex wordRegex(L"([A-Za-z0-9]+)");
         auto words_begin = std::wsregex_iterator(fullText.begin(), fullText.end(), wordRegex);
         auto words_end = std::wsregex_iterator();
@@ -144,28 +145,30 @@ void SniperLoop() {
         for (std::wsregex_iterator i = words_begin; i != words_end; ++i) {
             std::wstring word = i->str();
             
-            // Игнорируем служебные слова
             std::wstring lowerWord = word;
             for (auto& c : lowerWord) c = towlower(c);
             if (lowerWord == L"code" || lowerWord == L"is" || lowerWord == L"use" || lowerWord == L"code:") continue;
 
-            // Берем только код (4-15 символов, чтобы отсеять мусор)
             if (word.length() >= 4 && word.length() <= 15) {
-                if (word != lastCode) {
-                    lastCode = word;
-                    SetClipboardText(word);
-                    Sleep(200); 
-
-                    // Вставляем нужное количество раз
-                    for (int c = 0; c < insertCount; c++) { 
-                        PressCtrlV(); 
-                        Sleep(150); 
-                    }
-                    PressKey(VK_RETURN);
-                    
-                    std::wstring logMsg = L"[+] SNIPED: " + word;
-                    LogMessage(logMsg);
+                // Если код совпадает с предыдущим И прошло меньше 2 секунд — игнорируем (защита от дубляжа)
+                DWORD now = GetTickCount();
+                if (word == lastCode && (now - lastFoundTime) < 2000) {
+                    continue; 
                 }
+
+                lastCode = word;
+                lastFoundTime = now;
+                SetClipboardText(word);
+                Sleep(200); 
+
+                for (int c = 0; c < insertCount; c++) { 
+                    PressCtrlV(); 
+                    Sleep(150); 
+                }
+                PressKey(VK_RETURN);
+                
+                std::wstring logMsg = L"[+] SNIPED: " + word;
+                LogMessage(logMsg);
             }
         }
         Sleep(500); 
@@ -176,13 +179,27 @@ void SniperLoop() {
 LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
     switch (msg) {
     case WM_CREATE:
-        CreateWindowW(L"STATIC", L"Insert Count (Ctrl+V):", WS_CHILD | WS_VISIBLE, 10, 10, 150, 20, hwnd, NULL, NULL, NULL);
-        hCountEdit = CreateWindowW(L"EDIT", L"3", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 160, 10, 50, 20, hwnd, NULL, NULL, NULL);
-        
-        hBtnToggle = CreateWindowW(L"BUTTON", L"START (F8)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 40, 280, 30, hwnd, (HMENU)1, NULL, NULL);
-        
-        CreateWindowW(L"STATIC", L"Log:", WS_CHILD | WS_VISIBLE, 10, 80, 50, 20, hwnd, NULL, NULL, NULL);
-        hLogEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 10, 100, 280, 150, hwnd, NULL, NULL, NULL);
+        {
+            // Улучшенный UI (шрифт Segoe UI)
+            HFONT hFont = CreateFontW(16, 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS, DEFAULT_QUALITY, DEFAULT_PITCH | FF_SWISS, L"Segoe UI");
+            
+            CreateWindowW(L"STATIC", L"Insert Count (Ctrl+V):", WS_CHILD | WS_VISIBLE, 10, 15, 150, 20, hwnd, NULL, NULL, NULL);
+            hCountEdit = CreateWindowW(L"EDIT", L"3", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_NUMBER, 170, 15, 50, 20, hwnd, NULL, NULL, NULL);
+            SendMessageW(hCountEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            hBtnToggle = CreateWindowW(L"BUTTON", L"START (F8)", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 10, 50, 280, 35, hwnd, (HMENU)1, NULL, NULL);
+            SendMessageW(hBtnToggle, WM_SETFONT, (WPARAM)hFont, TRUE);
+            
+            CreateWindowW(L"STATIC", L"Log:", WS_CHILD | WS_VISIBLE, 10, 95, 50, 20, hwnd, NULL, NULL, NULL);
+            hLogEdit = CreateWindowW(L"EDIT", L"", WS_CHILD | WS_VISIBLE | WS_BORDER | ES_MULTILINE | ES_READONLY | WS_VSCROLL, 10, 120, 280, 130, hwnd, NULL, NULL, NULL);
+            SendMessageW(hLogEdit, WM_SETFONT, (WPARAM)hFont, TRUE);
+
+            // Устанавливаем шрифт для всех элементов
+            EnumChildWindows(hwnd, [](HWND child, LPARAM lParam) -> BOOL {
+                SendMessageW(child, WM_SETFONT, (WPARAM)lParam, TRUE);
+                return TRUE;
+            }, (LPARAM)hFont);
+        }
         break;
 
     case WM_COMMAND:
@@ -246,8 +263,9 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
             POINT pt; GetCursorPos(&pt);
             int newWidth = startRect.right - startRect.left + (pt.x - startPoint.x);
             int newHeight = startRect.bottom - startRect.top + (pt.y - startPoint.y);
-            if (newWidth > 50 && newHeight > 50) {
-                SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER);
+            if (newWidth > 60 && newHeight > 60) {
+                // SWP_FRAMECHANGED заставляет окно перерисоваться, убирая "следы"
+                SetWindowPos(hwnd, NULL, 0, 0, newWidth, newHeight, SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
             }
         }
         return 0;
@@ -262,13 +280,16 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         PAINTSTRUCT ps;
         HDC hdc = BeginPaint(hwnd, &ps);
         
+        // Прозрачный фон
         FillRect(hdc, &ps.rcPaint, (HBRUSH)GetStockObject(NULL_BRUSH));
 
+        // Красная шапка
         HBRUSH hBrushTop = CreateSolidBrush(RGB(255, 0, 0));
         RECT topBar = { 0, 0, ps.rcPaint.right, 20 };
         FillRect(hdc, &topBar, hBrushTop);
         DeleteObject(hBrushTop);
 
+        // Контур
         HPEN hPen = CreatePen(PS_SOLID, 2, RGB(255, 0, 0));
         HGDIOBJ oldPen = SelectObject(hdc, hPen);
         HGDIOBJ oldBrush = SelectObject(hdc, GetStockObject(NULL_BRUSH));
@@ -306,7 +327,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine
 
     hSelectorWnd = CreateWindowExW(WS_EX_TOPMOST | WS_EX_LAYERED, L"SelectorClass", L"Selector", WS_POPUP, 100, 100, 400, 150, NULL, NULL, hInstance, NULL);
     
-    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 200, LWA_COLORKEY | LWA_ALPHA);
+    // Убираем полупрозрачность, оставляем только цветовой ключ (чтобы убрать следы)
+    SetLayeredWindowAttributes(hSelectorWnd, RGB(255, 255, 255), 0, LWA_COLORKEY);
 
     ShowWindow(hMainWnd, nCmdShow);
     ShowWindow(hSelectorWnd, SW_SHOW);
