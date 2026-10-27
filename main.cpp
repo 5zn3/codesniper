@@ -125,7 +125,6 @@ void SniperLoop() {
         int w = captureRect.right - captureRect.left;
         int h = captureRect.bottom - captureRect.top;
         
-        // Захватываем область ПОД шапкой (высота шапки 20 пикселей)
         RECT actualCapture = { captureRect.left, captureRect.top + 20, captureRect.right, captureRect.bottom };
 
         if (w <= 0 || h <= 20) { Sleep(100); continue; }
@@ -137,11 +136,16 @@ void SniperLoop() {
         auto result = ocrEngine.RecognizeAsync(sbmp).get();
         std::wstring fullText = result.Text().c_str();
 
-        std::wregex codeRegex(L"code\\s*is\\s*([A-Za-z0-9]+)", std::regex_constants::icase);
+        // Ищем текст строго после "code is" или "use code" (игнорируя сами слова)
+        std::wregex codeRegex(L"(?:code\\s*is|use\\s*code)[:\\s]*([A-Za-z0-9]+)", std::regex_constants::icase);
         std::wsmatch match;
         
         if (std::regex_search(fullText, match, codeRegex)) {
             std::wstring foundCode = match[1].str();
+            
+            // Очищаем от возможного мусора, который мог захватить OCR
+            foundCode = std::regex_replace(foundCode, std::wregex(L"[^A-Za-z0-9]"), L"");
+
             if (foundCode != lastCode && !foundCode.empty()) {
                 lastCode = foundCode;
                 SetClipboardText(foundCode);
@@ -215,11 +219,9 @@ LRESULT CALLBACK SelectorProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
         GetCursorPos(&startPoint);
         GetWindowRect(hwnd, &startRect);
         
-        // Растягивание за правый нижний угол (20x20)
         if (startPoint.x > startRect.right - 20 && startPoint.y > startRect.bottom - 20) {
             isResizing = true;
         } 
-        // Перетаскивание строго за верхнюю красную полосу (высота 20 пикселей)
         else if (startPoint.y < startRect.top + 20) {
             isDragging = true;
         }
