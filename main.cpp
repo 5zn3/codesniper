@@ -136,27 +136,36 @@ void SniperLoop() {
         auto result = ocrEngine.RecognizeAsync(sbmp).get();
         std::wstring fullText = result.Text().c_str();
 
-        // Ищем текст строго после "code is" или "use code" (игнорируя сами слова)
-        std::wregex codeRegex(L"(?:code\\s*is|use\\s*code)[:\\s]*([A-Za-z0-9]+)", std::regex_constants::icase);
-        std::wsmatch match;
-        
-        if (std::regex_search(fullText, match, codeRegex)) {
-            std::wstring foundCode = match[1].str();
+        // Ищем любые слова (по одному)
+        std::wregex wordRegex(L"([A-Za-z0-9]+)");
+        auto words_begin = std::wsregex_iterator(fullText.begin(), fullText.end(), wordRegex);
+        auto words_end = std::wsregex_iterator();
+
+        for (std::wsregex_iterator i = words_begin; i != words_end; ++i) {
+            std::wstring word = i->str();
             
-            // Очищаем от возможного мусора, который мог захватить OCR
-            foundCode = std::regex_replace(foundCode, std::wregex(L"[^A-Za-z0-9]"), L"");
+            // Игнорируем служебные слова
+            std::wstring lowerWord = word;
+            for (auto& c : lowerWord) c = towlower(c);
+            if (lowerWord == L"code" || lowerWord == L"is" || lowerWord == L"use" || lowerWord == L"code:") continue;
 
-            if (foundCode != lastCode && !foundCode.empty()) {
-                lastCode = foundCode;
-                SetClipboardText(foundCode);
-                Sleep(200); 
+            // Берем только код (4-15 символов, чтобы отсеять мусор)
+            if (word.length() >= 4 && word.length() <= 15) {
+                if (word != lastCode) {
+                    lastCode = word;
+                    SetClipboardText(word);
+                    Sleep(200); 
 
-                int count = insertCount;
-                for (int i = 0; i < count; i++) { PressCtrlV(); Sleep(50); }
-                PressKey(VK_RETURN);
-                
-                std::wstring logMsg = L"[+] SNIPED: " + foundCode;
-                LogMessage(logMsg);
+                    // Вставляем нужное количество раз
+                    for (int c = 0; c < insertCount; c++) { 
+                        PressCtrlV(); 
+                        Sleep(150); 
+                    }
+                    PressKey(VK_RETURN);
+                    
+                    std::wstring logMsg = L"[+] SNIPED: " + word;
+                    LogMessage(logMsg);
+                }
             }
         }
         Sleep(500); 
